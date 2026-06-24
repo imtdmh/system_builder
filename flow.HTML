@@ -1,0 +1,2799 @@
+<!DOCTYPE html>
+
+<html lang="ko">
+
+
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>방송 계통도 빌더 v6.4.2 (선택 버그 수정 및 컨텍스트 스폰 패치)</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+
+
+    <script id="data-script">
+
+        let nodes = [
+
+            { "id": 1, "type": "video-in", "label": "CAM 1 (리액션)", "x": 60, "y": 60 },
+
+            { "id": 2, "type": "video-in", "label": "CAM 2 (폴캠)", "x": 60, "y": 150 },
+
+            { "id": 3, "type": "audio-in", "label": "MIC 1-6 입력", "x": 60, "y": 240 },
+
+            { "id": 4, "type": "net-dev", "label": "본딩 라우터", "x": 60, "y": 330 },
+
+            { "id": 5, "type": "video-dev", "label": "", "x": 420, "y": 150 }
+
+        ];
+
+        let connections = [
+
+            { "from": 1, "to": 5, "cable": "SDI", "note": "메인 라이브" },
+
+            { "from": 1, "to": 5, "cable": "SDI", "note": "모니터링용" },
+
+            { "from": 2, "to": 5, "cable": "SDI", "note": "UDC 변환 신호" },
+
+            { "from": 3, "to": 5, "cable": "XLR", "note": "오디오 마스터" },
+
+            { "from": 4, "to": 5, "cable": "Ethernet", "note": "망 이중화 라인" }
+
+        ];
+
+        let idCounter = 5;
+
+    </script>
+
+
+
+    <style>
+        .canvas-bg.dark {
+
+            background-color: #000000;
+
+            background-image: radial-gradient(#1e293b 1px, transparent 1px);
+
+            background-size: 20px 20px;
+
+        }
+
+
+
+        .canvas-bg.light {
+
+            background-color: #f8fafc;
+
+            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+
+            background-size: 20px 20px;
+
+        }
+
+
+
+        #canvas {
+
+            position: absolute;
+
+            top: 0;
+
+            left: 0;
+
+            width: 3200px;
+
+            height: 2000px;
+
+            border-radius: 12px;
+
+            transform-origin: 0 0;
+
+            transition: transform 0.1s ease-out;
+
+        }
+
+
+
+        #canvas.dark {
+
+            border: 1px solid #1e293b;
+
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.7);
+
+        }
+
+
+
+        #canvas.light {
+
+            border: 1px solid #e2e8f0;
+
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+
+        }
+
+
+
+        .node-connect-ready {
+
+            ring: 4px solid #a855f7;
+
+        }
+
+
+
+        .node-element {
+
+            transition: height 0.15s ease, box-shadow 0.15s ease;
+
+        }
+
+
+
+        /* 노드 좌우 10% 영역 포트 수정 힌트 */
+
+        .node-element::before,
+
+        .node-element::after {
+
+            content: '';
+
+            position: absolute;
+
+            top: 0;
+
+            width: 10%;
+
+            height: 100%;
+
+            z-index: 15;
+
+            pointer-events: none;
+
+            opacity: 0;
+
+            transition: opacity 0.15s ease;
+
+        }
+
+
+
+        .node-element::before {
+
+            left: 0;
+
+            background: linear-gradient(to right, rgba(56, 189, 248, 0.18), transparent);
+
+            border-radius: 12px 0 0 12px;
+
+        }
+
+
+
+        .node-element::after {
+
+            right: 0;
+
+            background: linear-gradient(to left, rgba(168, 85, 247, 0.18), transparent);
+
+            border-radius: 0 12px 12px 0;
+
+        }
+
+
+
+        .node-element:hover::before,
+
+        .node-element:hover::after {
+
+            opacity: 1;
+
+        }
+
+
+
+        /* 포트 dot 호버 효과 */
+
+        .port-dot-group {
+
+            opacity: 0.75;
+
+            transition: opacity 0.15s ease;
+
+        }
+
+
+
+        .port-dot-group:hover {
+
+            opacity: 1;
+
+        }
+
+
+
+        .port-dot-group:hover circle.port-dot-circle {
+
+            r: 7;
+
+        }
+
+
+
+        .edge-label {
+
+            font-family: sans-serif;
+
+            font-size: 11px;
+
+            font-weight: bold;
+
+        }
+
+
+
+        .edge-group.selected path.main-path {
+
+            stroke-width: 5px !important;
+
+            stroke-dasharray: 6, 4 !important;
+
+        }
+    </style>
+
+</head>
+
+
+
+<body class="bg-slate-900 text-slate-100 font-sans h-screen flex flex-col overflow-hidden select-none">
+
+
+
+    <header
+        class="bg-slate-800 border-b border-slate-700 px-6 py-3.5 flex flex-col xl:flex-row justify-between items-center gap-4 z-10 shadow-md">
+
+        <div class="flex items-center gap-3">
+
+            <i class="fa-solid fa-diagram-project text-sky-400 text-2xl"></i>
+
+            <h1 class="text-lg font-bold tracking-wide">Broadcast Diagram Builder</h1>
+
+        </div>
+
+
+
+        <div id="align-tools-zone"
+            class="flex items-center bg-slate-900/40 px-3 py-1.5 rounded-xl border border-slate-700/60 gap-1.5">
+
+            <span class="text-xs font-semibold pr-1 text-slate-400 uppercase tracking-wider"><i
+                    class="fa-solid fa-wand-magic-sparkles text-amber-400 mr-1"></i> 정렬:</span>
+
+            <button onclick="autoLayout()"
+                class="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition mr-1 shadow"><i
+                    class="fa-solid fa-magic"></i> 자동 정렬</button>
+
+            <button onclick="alignNodes('horizontal')"
+                class="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs font-medium flex items-center gap-1 transition"><i
+                    class="fa-solid fa-align-center text-sky-400"></i> 좌우</button>
+
+            <button onclick="alignNodes('vertical')"
+                class="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs font-medium flex items-center gap-1 transition"><i
+                    class="fa-solid fa-align-center rotate-90 text-sky-400"></i> 상하</button>
+
+            <button onclick="distributeNodes('horizontal')"
+                class="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs font-medium flex items-center gap-1 transition"><i
+                    class="fa-solid fa-distribute-spacing-horizontal text-emerald-400"></i> 가로 균등</button>
+
+            <button onclick="distributeNodes('vertical')"
+                class="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs font-medium flex items-center gap-1 transition"><i
+                    class="fa-solid fa-distribute-spacing-vertical text-emerald-400"></i> 세로 균등</button>
+
+            <div class="w-px bg-slate-600 mx-1 h-5"></div>
+
+            <button onclick="alignCablesMidX()"
+                class="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs font-medium flex items-center gap-1 transition"
+                title="2개: 중간점 수직 정렬 / 3개 이상: 균등 분배 (step·curve 모두 지원)"><i
+                    class="fa-solid fa-grip-lines-vertical text-purple-400"></i> 케이블 정렬</button>
+
+            <button onclick="resetCableLabels()"
+                class="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs font-medium flex items-center gap-1 transition"
+                title="선택 케이블 라벨 위치 초기화"><i class="fa-solid fa-rotate text-orange-400"></i> 라벨 초기화</button>
+
+        </div>
+
+
+
+        <div id="cable-selector-zone"
+            class="flex items-center bg-slate-900/60 p-1.5 rounded-xl border border-slate-700 gap-1 transition-opacity duration-200">
+
+            <span class="text-xs font-semibold px-2 text-slate-400 uppercase tracking-wider">Cable:</span>
+
+            <button onclick="setCableType('SDI')" id="btn-cable-SDI"
+                class="px-2.5 py-1 rounded-lg text-xs font-bold bg-red-500 text-white border-2 border-transparent">SDI</button>
+
+            <button onclick="setCableType('HDMI')" id="btn-cable-HDMI"
+                class="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-500 text-slate-950 border-2 border-transparent">HDMI</button>
+
+            <button onclick="setCableType('XLR')" id="btn-cable-XLR"
+                class="px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-500 text-slate-950 border-2 border-transparent">XLR</button>
+
+            <button onclick="setCableType('TRS')" id="btn-cable-TRS"
+                class="px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-500 text-white border-2 border-transparent">TRS</button>
+
+            <button onclick="setCableType('Ethernet')" id="btn-cable-Ethernet"
+                class="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-500 text-white border-2 border-transparent">Ethernet</button>
+
+            <button onclick="setCableType('USB')" id="btn-cable-USB"
+                class="px-2.5 py-1 rounded-lg text-xs font-bold bg-orange-500 text-white border-2 border-transparent">USB</button>
+
+            <button onclick="setCableType('ETC')" id="btn-cable-ETC"
+                class="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-500 text-white border-2 border-transparent">ETC</button>
+
+        </div>
+
+
+
+        <div class="flex gap-2 items-center">
+
+            <button onclick="toggleLineStyle()" id="btn-line-style"
+                class="px-3 py-1.5 rounded-lg font-medium text-xs transition bg-slate-700 hover:bg-slate-600 text-slate-300 flex items-center gap-1.5 border border-slate-600 shadow-md"
+                title="선 스타일 변경"><i class="fa-solid fa-bezier-curve"></i> 곡선</button>
+
+            <div class="w-px bg-slate-600 mx-1 h-5"></div>
+
+            <button onclick="setZoom(zoomLevel - 0.1)"
+                class="px-2 py-1.5 rounded-lg font-medium text-xs transition bg-slate-700 hover:bg-slate-600 text-slate-300"
+                title="축소"><i class="fa-solid fa-minus"></i></button>
+
+            <span id="zoom-label" class="text-xs font-bold text-slate-300 w-10 text-center">100%</span>
+
+            <button onclick="setZoom(zoomLevel + 0.1)"
+                class="px-2 py-1.5 rounded-lg font-medium text-xs transition bg-slate-700 hover:bg-slate-600 text-slate-300"
+                title="확대"><i class="fa-solid fa-plus"></i></button>
+
+            <button onclick="fitToScreen()"
+                class="px-2.5 py-1.5 rounded-lg font-medium text-xs transition bg-slate-700 hover:bg-slate-600 text-slate-300 flex items-center gap-1 border border-slate-600"
+                title="화면에 맞춤"><i class="fa-solid fa-arrows-to-eye"></i> 맞춤</button>
+
+            <div class="w-px bg-slate-600 mx-1 h-5"></div>
+
+            <button onclick="undo()"
+                class="px-2.5 py-1.5 rounded-lg font-medium text-xs transition bg-slate-700 hover:bg-slate-600 text-slate-300 flex items-center gap-1 border border-slate-600"
+                title="실행 취소 (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i> Undo</button>
+
+            <div class="w-px bg-slate-600 mx-1"></div>
+
+            <button onclick="toggleTheme()"
+                class="px-3 py-1.5 rounded-lg font-medium text-xs bg-slate-700 hover:bg-slate-600 text-white transition flex items-center gap-1.5 shadow-md"><i
+                    class="fa-solid fa-circle-half-stroke"></i> 배경 전환</button>
+
+            <button onclick="exportToHTML()"
+                class="ml-1 px-3 py-1.5 rounded-lg font-medium text-xs bg-blue-600 hover:bg-blue-500 text-white transition shadow-md">HTML
+
+                저장</button>
+
+            <input type="file" id="import-file" accept=".html" class="hidden" onchange="importFromHTML(event)">
+
+            <button onclick="document.getElementById('import-file').click()"
+                class="px-3 py-1.5 rounded-lg font-medium text-xs bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-md">HTML
+
+                불러오기</button>
+
+            <button onclick="exportToPNG()"
+                class="px-3 py-1.5 rounded-lg font-medium text-xs bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-md">PNG
+
+                출력</button>
+
+        </div>
+
+    </header>
+
+
+
+    <div class="flex flex-1 overflow-hidden relative">
+
+        <aside
+            class="w-64 bg-slate-800 border-r border-slate-700 p-4 flex flex-col gap-3 z-10 shadow-lg overflow-y-auto">
+
+            <div>
+
+                <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">장비 라이브러리</h2>
+
+                <p class="text-[11px] text-slate-500">선택 장비가 있다면 그 바로 아래 정렬되어 생성됩니다.</p>
+
+            </div>
+
+            <div class="flex flex-col gap-2">
+
+                <button onclick="createNewNode('video-in', '비디오 입력소스')"
+                    class="w-full p-2.5 bg-red-600/10 hover:bg-red-600/20 border border-red-500/30 text-red-400 rounded-xl text-left text-sm font-medium transition flex items-center gap-3"><i
+                        class="fa-solid fa-camera w-5 text-center"></i> 비디오 입력소스</button>
+
+                <button onclick="createNewNode('video-dev', '')"
+                    class="w-full p-2.5 bg-rose-600/10 hover:bg-rose-600/20 border border-rose-500/30 text-rose-400 rounded-xl text-left text-sm font-medium transition flex items-center gap-3"><i
+                        class="fa-solid fa-layer-group w-5 text-center"></i> 비디오 장비</button>
+
+                <button onclick="createNewNode('audio-in', '오디오 입력소스')"
+                    class="w-full p-2.5 bg-blue-600/10 hover:bg-blue-600/20 border border-blue-500/30 text-blue-400 rounded-xl text-left text-sm font-medium transition flex items-center gap-3"><i
+                        class="fa-solid fa-microphone w-5 text-center"></i> 오디오 입력소스</button>
+
+                <button onclick="createNewNode('audio-dev', '')"
+                    class="w-full p-2.5 bg-sky-600/10 hover:bg-sky-600/20 border border-sky-500/30 text-sky-400 rounded-xl text-left text-sm font-medium transition flex items-center gap-3"><i
+                        class="fa-solid fa-sliders w-5 text-center"></i> 오디오 장비</button>
+
+                <button onclick="createNewNode('net-dev', '이더넷 장비')"
+                    class="w-full p-2.5 bg-emerald-600/10 hover:bg-emerald-600/20 border border-emerald-500/30 text-emerald-400 rounded-xl text-left text-sm font-medium transition flex items-center gap-3"><i
+                        class="fa-solid fa-network-wired w-5 text-center"></i> 이더넷 장비</button>
+
+                <button onclick="createNewNode('out-dev', '출력 장비')"
+                    class="w-full p-2.5 bg-amber-600/10 hover:bg-amber-600/20 border border-amber-500/30 text-amber-400 rounded-xl text-left text-sm font-medium transition flex items-center gap-3"><i
+                        class="fa-solid fa-tv w-5 text-center"></i> 출력 장비</button>
+
+                <button onclick="createNewNode('etc-dev', '기타 장비')"
+                    class="w-full p-2.5 bg-green-600/10 hover:bg-green-600/20 border border-green-500/30 text-green-400 rounded-xl text-left text-sm font-medium transition flex items-center gap-3"><i
+                        class="fa-solid fa-ellipsis w-5 text-center"></i> 기타 장비</button>
+
+            </div>
+
+        </aside>
+
+
+
+        <div class="flex-1 bg-slate-950 p-6 overflow-auto relative" id="workspace-container">
+
+            <div id="zoom-wrapper" class="relative" style="width: 3200px; height: 2000px;">
+
+                <main id="canvas" class="canvas-bg dark">
+
+                    <svg id="edge-svg" class="absolute inset-0 w-full h-full pointer-events-none z-0"></svg>
+
+                    <div id="selection-box"
+                        class="absolute border border-sky-500 bg-sky-500/20 hidden pointer-events-none z-50"></div>
+
+                </main>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+
+    <footer
+        class="bg-slate-900 border-t border-slate-700 px-6 py-2 text-xs text-slate-400 flex justify-between items-center z-10 shadow-inner">
+
+        <div class="flex items-center gap-2">
+
+            <span class="inline-block w-2 h-2 rounded-full bg-sky-400 animate-pulse" id="mode-pulse"></span>
+
+            <span id="current-mode-status" class="font-bold text-slate-300">기본 모드</span>
+
+        </div>
+
+        <div class="text-[11px] opacity-60">단축키: 삭제(Delete), 되돌리기(Ctrl+Z), 복사(Ctrl+C), 붙여넣기(Ctrl+V)</div>
+
+    </footer>
+
+
+
+    <script>
+
+        let currentMode = 'move';
+
+        let selectedNodeForConnect = null;
+
+        let selectedConnections = [];
+
+        let currentCableType = 'SDI';
+
+        let lineStyle = 'curve'; // 'curve' or 'step'
+
+        let zoomLevel = 1.0;
+
+        let connDragStartX = 0;
+
+        let connDragType = null;
+
+
+
+        function setZoom(level) {
+
+            zoomLevel = Math.max(0.3, Math.min(3.0, level));
+
+            canvas.style.transform = `scale(${zoomLevel})`;
+
+            const wrapper = document.getElementById('zoom-wrapper');
+
+            if (wrapper) {
+
+                wrapper.style.width = `${3200 * zoomLevel}px`;
+
+                wrapper.style.height = `${2000 * zoomLevel}px`;
+
+            }
+
+            const label = document.getElementById('zoom-label');
+
+            if (label) {
+
+                label.innerText = `${Math.round(zoomLevel * 100)}%`;
+
+            }
+
+        }
+
+
+
+        let selectedNodes = [];
+
+        let copiedNodeData = null;
+
+        let hasDragged = false;
+
+        let isLightMode = false;
+
+
+
+        let isSelecting = false;
+
+        let selectStartX = 0, selectStartY = 0;
+
+        let dragStartMouseX = 0, dragStartMouseY = 0;
+
+        let isDraggingConnection = false;
+
+        let activeDragConnection = null;
+
+        let activeConnIndex = -1;
+
+        let connDragStartY = 0;
+
+        let undoStack = [];
+
+
+
+        // ★ 케이블 라벨 드래그 상태
+
+        let isDraggingLabel = false;
+
+        let activeLabelConn = null;
+
+        let labelDragStartX = 0, labelDragStartY = 0;
+
+
+
+        // ★ [v6.4.2 중요 패치] 클릭 간섭 및 클릭 이전 포커스 판정 버퍼 상태 플래그 선언
+
+        let preventCanvasClick = false;
+
+        let wasNodeSelectedBeforeMousedown = false;
+
+
+
+        const canvas = document.getElementById('canvas');
+
+        const svg = document.getElementById('edge-svg');
+
+        const guideText = document.getElementById('guide-text');
+
+        const cableZone = document.getElementById('cable-selector-zone');
+
+        const selectionBox = document.getElementById('selection-box');
+
+        const modeStatus = document.getElementById('current-mode-status');
+
+        const modePulse = document.getElementById('mode-pulse');
+
+
+
+        const cableSpecs = { 'SDI': { color: '#ef4444' }, 'HDMI': { color: '#f59e0b' }, 'XLR': { color: '#06b6d4' }, 'TRS': { color: '#a855f7' }, 'Ethernet': { color: '#10b981' }, 'USB': { color: '#f97316' }, 'ETC': { color: '#64748b' } };
+
+
+
+        function saveState() {
+
+            const state = JSON.stringify({ nodes, connections, idCounter });
+
+            if (undoStack.length === 0 || undoStack[undoStack.length - 1] !== state) {
+
+                undoStack.push(state);
+
+            }
+
+        }
+
+
+
+        function undo() {
+
+            if (undoStack.length > 1) {
+
+                undoStack.pop();
+
+                const prevState = JSON.parse(undoStack[undoStack.length - 1]);
+
+                nodes = prevState.nodes; connections = prevState.connections; idCounter = prevState.idCounter;
+
+                document.querySelectorAll('.node-element').forEach(el => el.remove());
+
+                svg.innerHTML = ''; clearNodeSelection(); selectedConnections = [];
+
+                nodes.forEach(node => renderNodeDOM(node)); drawAllLines();
+
+                updateStatusBar();
+
+            }
+
+        }
+
+
+
+        window.onload = function () {
+
+            document.querySelectorAll('.node-element').forEach(el => el.remove());
+
+            svg.innerHTML = '';
+
+            nodes.forEach(node => renderNodeDOM(node));
+
+            saveState();
+
+
+
+            // 캔버스 드래그 박스 마우스 다운 인터셉터
+
+            canvas.addEventListener('mousedown', (e) => {
+
+                if (currentMode !== 'move' || (e.target !== canvas && e.target !== svg)) return;
+
+                isSelecting = true;
+
+                const rect = canvas.getBoundingClientRect();
+
+                selectStartX = (e.clientX - rect.left) / zoomLevel; selectStartY = (e.clientY - rect.top) / zoomLevel;
+
+                selectionBox.style.left = `${selectStartX}px`; selectionBox.style.top = `${selectStartY}px`;
+
+                selectionBox.style.width = '0px'; selectionBox.style.height = '0px';
+
+                selectionBox.classList.remove('hidden');
+
+
+
+                preventCanvasClick = false;
+
+                clearNodeSelection(); selectedConnections = []; drawAllLines();
+
+                updateStatusBar();
+
+            });
+
+
+
+            // 캔버스 빈 바탕 클릭 시 해제 제어
+
+            canvas.addEventListener('click', (e) => {
+
+                if (preventCanvasClick) {
+
+                    preventCanvasClick = false;
+
+                    return;
+
+                }
+
+                if (e.target === canvas || e.target === svg) {
+
+                    selectedConnections = [];
+
+                    clearNodeSelection();
+
+                    if (selectedNodeForConnect) {
+
+                        selectedNodeForConnect = null;
+
+                        document.querySelectorAll('.node-element').forEach(n => n.classList.remove('node-connect-ready'));
+
+                    }
+
+                    drawAllLines();
+
+                    updateStatusBar();
+
+                }
+
+            });
+
+
+
+            document.addEventListener('keydown', (e) => {
+
+                const targetTag = e.target.tagName.toLowerCase();
+
+                if (targetTag === 'input' || targetTag === 'textarea') return;
+
+
+
+                const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+
+                const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+
+
+                if (cmdOrCtrl && (e.key === 'z' || e.key === 'Z')) {
+
+                    e.preventDefault(); undo(); return;
+
+                }
+
+
+
+                if (e.key === 'Escape') {
+
+                    if (selectedNodeForConnect) {
+
+                        selectedNodeForConnect = null;
+
+                        document.querySelectorAll('.node-element').forEach(n => n.classList.remove('node-connect-ready'));
+
+                        updateStatusBar();
+
+                    }
+
+                    return;
+
+                }
+
+
+
+                // Ctrl+C 복사 (라벨 핏 청소 유지)
+
+                if (cmdOrCtrl && (e.key === 'c' || e.key === 'C')) {
+
+                    if (selectedNodes.length > 0) {
+
+                        const target = selectedNodes[selectedNodes.length - 1];
+
+                        copiedNodeData = { type: target.type, label: target.label, x: target.x, y: target.y + 90 };
+
+                    }
+
+                }
+
+                // Ctrl+V 붙여넣기 (아래로 수직 자동 스택 연동)
+
+                if (cmdOrCtrl && (e.key === 'v' || e.key === 'V')) {
+
+                    if (copiedNodeData) {
+
+                        createNewNode(copiedNodeData.type, copiedNodeData.label, copiedNodeData.x, copiedNodeData.y);
+
+                        copiedNodeData.y += 90;
+
+                    }
+
+                }
+
+                if (e.key === 'Delete' || e.key === 'Backspace') {
+
+                    if (selectedNodes.length > 0) {
+
+                        selectedNodes.forEach(node => {
+
+                            nodes = nodes.filter(n => n.id !== node.id);
+
+                            connections = connections.filter(c => c.from !== node.id && c.to !== node.id);
+
+                            const el = document.getElementById(`node-${node.id}`); if (el) el.remove();
+
+                        });
+
+                        clearNodeSelection(); drawAllLines(); saveState(); updateStatusBar();
+
+                    } else if (selectedConnections.length > 0) {
+
+                        selectedConnections.forEach(conn => {
+
+                            connections = connections.filter(c => c !== conn);
+
+                        });
+
+                        selectedConnections = []; drawAllLines(); saveState(); updateStatusBar();
+
+                    }
+
+                }
+
+            });
+
+
+
+            // workspace-container에서 Ctrl+마우스휠 확대/축소 등록
+
+            const workspaceContainer = document.getElementById('workspace-container');
+
+            if (workspaceContainer) {
+
+                workspaceContainer.addEventListener('wheel', (e) => {
+
+                    if (e.ctrlKey) {
+
+                        e.preventDefault();
+
+                        const delta = e.deltaY < 0 ? 0.1 : -0.1;
+
+                        setZoom(zoomLevel + delta);
+
+                    }
+
+                }, { passive: false });
+
+            }
+
+
+
+            setCableType('SDI'); drawAllLines();
+
+        };
+
+
+
+        function toggleLineStyle() {
+
+            lineStyle = lineStyle === 'curve' ? 'step' : 'curve';
+
+            const btn = document.getElementById('btn-line-style');
+
+            if (lineStyle === 'curve') {
+
+                btn.innerHTML = `<i class="fa-solid fa-bezier-curve"></i> 곡선`;
+
+            } else {
+
+                btn.innerHTML = `<i class="fa-solid fa-wave-square"></i> 직각`;
+
+            }
+
+            drawAllLines();
+
+        }
+
+
+
+        // ★ [v6.4.2 추가] 상태바 통합 제어 업데이트 함수
+
+        function updateStatusBar() {
+
+            if (selectedNodeForConnect) {
+
+                modeStatus.innerHTML = `기본 모드 — <span class="text-purple-400 font-bold">연결 대기 중 (타겟 장비를 클릭하세요)</span>`;
+
+                modePulse.className = "inline-block w-2 h-2 rounded-full bg-purple-400 animate-pulse";
+
+            } else if (selectedNodes.length > 0 && selectedConnections.length > 0) {
+
+                modeStatus.innerHTML = `기본 모드 — <span class="text-sky-400 font-bold">장비 ${selectedNodes.length}개</span> / <span class="text-purple-400 font-bold">케이블 ${selectedConnections.length}개</span> 선택 중`;
+
+                modePulse.className = "inline-block w-2 h-2 rounded-full bg-sky-400 animate-pulse";
+
+            } else if (selectedNodes.length > 0) {
+
+                modeStatus.innerHTML = `기본 모드 — <span class="text-sky-400 font-bold">${selectedNodes.length}개 장비 선택 중</span>`;
+
+                modePulse.className = "inline-block w-2 h-2 rounded-full bg-sky-400 animate-pulse";
+
+            } else if (selectedConnections.length > 0) {
+
+                modeStatus.innerHTML = `기본 모드 — <span class="text-purple-400 font-bold">${selectedConnections.length}개 케이블 선택 중</span>`;
+
+                modePulse.className = "inline-block w-2 h-2 rounded-full bg-sky-400 animate-pulse";
+
+            } else {
+
+                modeStatus.innerText = "기본 모드";
+
+                modePulse.className = "inline-block w-2 h-2 rounded-full bg-sky-400 animate-pulse";
+
+            }
+
+        }
+
+
+
+        function setCableType(type) {
+
+            currentCableType = type;
+
+            if (selectedConnections.length > 0) { selectedConnections.forEach(c => c.cable = type); saveState(); }
+
+            Object.keys(cableSpecs).forEach(t => {
+
+                const btn = document.getElementById(`btn-cable-${t}`);
+
+                if (btn) { btn.style.borderColor = (t === type) ? '#f8fafc' : 'transparent'; btn.style.transform = (t === type) ? 'scale(1.05)' : 'none'; }
+
+            });
+
+            drawAllLines();
+
+        }
+
+
+
+        function toggleTheme() {
+
+            isLightMode = !isLightMode;
+
+            if (isLightMode) { canvas.classList.remove('dark'); canvas.classList.add('light'); }
+
+            else { canvas.classList.remove('light'); canvas.classList.add('dark'); }
+
+        }
+
+
+
+        function clearNodeSelection() { selectedNodes = []; document.querySelectorAll('.node-element').forEach(el => el.classList.remove('ring-4', 'ring-sky-400')); }
+
+
+
+        // ★ [v6.4.2 패치 완료] 가장 마지막으로 '선택했던' 장비 컨텍스트 분석 스폰 엔진 개조
+
+        function createNewNode(type, label, initX = null, initY = null) {
+
+            idCounter++;
+
+            let x = initX; let y = initY;
+
+
+
+            if (x === null || y === null) {
+
+                // 1. 현재 선택된 장비들 중 생성하려는 카테고리와 똑같은 장비가 잡혀있는지 필터링
+
+                const sameTypeSelected = selectedNodes.filter(n => n.type === type);
+
+                if (sameTypeSelected.length > 0) {
+
+                    // 마지막에 마우스 포커싱 되었던 장비 구조 수집
+
+                    const lastSelected = sameTypeSelected[sameTypeSelected.length - 1];
+
+                    x = lastSelected.x;
+
+                    y = lastSelected.y + 90; // 해당 타겟 바로 아래 정렬 스폰 확정
+
+                } else {
+
+                    // 2. 선택된 장비가 없는 경우 기존 도면상의 같은 열(그룹) 최하단 자동 가구 누적 백업 유지
+
+                    let sameGroupNodes = [];
+
+                    if (type === 'video-in' || type === 'audio-in') {
+
+                        sameGroupNodes = nodes.filter(n => n.type === 'video-in' || n.type === 'audio-in');
+
+                    } else if (type === 'video-dev' || type === 'audio-dev') {
+
+                        sameGroupNodes = nodes.filter(n => n.type === 'video-dev' || n.type === 'audio-dev');
+
+                    } else {
+
+                        sameGroupNodes = nodes.filter(n => n.type !== 'video-in' && n.type !== 'audio-in' && n.type !== 'video-dev' && n.type !== 'audio-dev');
+
+                    }
+
+
+
+                    if (sameGroupNodes.length > 0) {
+
+                        sameGroupNodes.sort((a, b) => b.y - a.y);
+
+                        x = sameGroupNodes[0].x;
+
+                        y = sameGroupNodes[0].y + 90;
+
+                    } else {
+
+                        // 3. 도면에 아예 처음 만드는 종류인 경우 표준 3열 그리드 마스터 좌표축 빌드
+
+                        if (type === 'video-in' || type === 'audio-in') x = 60;
+
+                        else if (type === 'video-dev' || type === 'audio-dev') x = 400;
+
+                        else x = 740;
+
+                        y = 60;
+
+                    }
+
+                }
+
+            }
+
+
+
+            const node = { id: idCounter, type, label, x, y };
+
+            nodes.push(node); renderNodeDOM(node); drawAllLines(); saveState();
+
+            updateStatusBar();
+
+        }
+
+
+
+        function renderNodeDOM(node) {
+
+            const nodeEl = document.createElement('div');
+
+            nodeEl.id = `node-${node.id}`;
+
+            nodeEl.className = `node-element group absolute rounded-xl shadow-xl border cursor-pointer font-medium text-sm z-10 w-48 select-none`;
+
+            let theme = "", icon = "", catLabel = "";
+
+            switch (node.type) {
+
+                case 'video-in': theme = "bg-red-950/80 border-red-500/50 text-red-200"; icon = "fa-camera text-red-400"; catLabel = "비디오 입력"; break;
+
+                case 'video-dev': theme = "bg-rose-950/80 border-rose-500/50 text-rose-200"; icon = "fa-layer-group text-rose-400"; catLabel = "비디오 장비"; break;
+
+                case 'audio-in': theme = "bg-blue-950/80 border-blue-500/50 text-blue-200"; icon = "fa-microphone text-blue-400"; catLabel = "오디오 입력"; break;
+
+                case 'audio-dev': theme = "bg-sky-950/80 border-sky-500/50 text-sky-200"; icon = "fa-sliders text-sky-400"; catLabel = "오디오 장비"; break;
+
+                case 'net-dev': theme = "bg-emerald-950/80 border-emerald-500/50 text-emerald-200"; icon = "fa-network-wired text-emerald-400"; catLabel = "이더넷 장비"; break;
+
+                case 'out-dev': theme = "bg-amber-950/80 border-amber-500/50 text-amber-200"; icon = "fa-tv text-amber-400"; catLabel = "출력 장비"; break;
+
+                default: theme = "bg-green-950/80 border-green-500/50 text-green-200"; icon = "fa-ellipsis text-green-400"; catLabel = "기타 장비";
+
+            }
+
+            nodeEl.className += ` ${theme}`; nodeEl.style.left = `${node.x}px`; nodeEl.style.top = `${node.y}px`;
+
+
+
+            nodeEl.innerHTML = `
+
+                <div class="flex flex-col items-center justify-center gap-1 px-3 py-3 text-center w-full">
+
+                    <div class="flex items-center gap-1.5 text-[10px] opacity-60 uppercase tracking-wider justify-center">
+
+                        <i class="fa-solid ${icon}"></i> ${catLabel}
+
+                    </div>
+
+                    <div class="node-title font-bold text-sm whitespace-normal break-words leading-tight text-white text-center w-full">${node.label || '&nbsp;'}</div>
+
+                </div>
+
+                <div class="connect-btn absolute -right-4 top-1/2 -translate-y-1/2 w-9 h-9 bg-purple-600 hover:bg-purple-500 rounded-full text-white text-sm shadow-lg border-2 border-purple-300 z-20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" title="이 장비에서 선 연결하기"><i class="fa-solid fa-arrow-right"></i></div>
+
+            `;
+
+
+
+            const connectBtn = nodeEl.querySelector('.connect-btn');
+
+            connectBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+
+            connectBtn.addEventListener('click', (e) => {
+
+                e.stopPropagation();
+
+                selectedNodeForConnect = node;
+
+                document.querySelectorAll('.node-element').forEach(n => n.classList.remove('node-connect-ready'));
+
+                nodeEl.classList.add('node-connect-ready');
+
+                updateStatusBar();
+
+            });
+
+
+
+            nodeEl.addEventListener('mousedown', (e) => {
+
+                if (currentMode !== 'move') return;
+
+
+
+                if (e.shiftKey) {
+
+                    // Shift 코: 선택 토글 (기존 선택 유지)
+
+                    e.stopPropagation();
+
+                    const idx = selectedNodes.findIndex(n => n.id === node.id);
+
+                    if (idx === -1) {
+
+                        selectedNodes.push(node);
+
+                        nodeEl.classList.add('ring-4', 'ring-sky-400');
+
+                    } else {
+
+                        selectedNodes.splice(idx, 1);
+
+                        nodeEl.classList.remove('ring-4', 'ring-sky-400');
+
+                    }
+
+                    wasNodeSelectedBeforeMousedown = true;
+
+                    dragStartMouseX = e.clientX; dragStartMouseY = e.clientY;
+
+                    selectedNodes.forEach(n => { n.startX = n.x; n.startY = n.y; });
+
+                    isDragging = true; hasDragged = false;
+
+                    updateStatusBar();
+
+                    return;
+
+                }
+
+
+
+                isDragging = true; hasDragged = false;
+
+                activeNodeElement = nodeEl;
+
+                wasNodeSelectedBeforeMousedown = selectedNodes.some(n => n.id === node.id);
+
+                if (!wasNodeSelectedBeforeMousedown) {
+
+                    clearNodeSelection();
+
+                    selectedNodes.push(node);
+
+                    nodeEl.classList.add('ring-4', 'ring-sky-400');
+
+                    updateStatusBar();
+
+                }
+
+                dragStartMouseX = e.clientX; dragStartMouseY = e.clientY;
+
+                selectedNodes.forEach(n => { n.startX = n.x; n.startY = n.y; });
+
+                e.stopPropagation();
+
+            });
+
+
+
+            nodeEl.addEventListener('click', (e) => onNodeClick(e, node));
+
+
+
+            // ★ 더블클릭 영역 3분할:
+
+            //   왼쪽 10% → IN 포트번호 수정
+
+            //   오른쪽 10% → OUT 포트번호 수정
+
+            //   중앙 80% → 장비명 수정
+
+            nodeEl.addEventListener('dblclick', (e) => {
+
+                e.stopPropagation();
+
+                const rect = nodeEl.getBoundingClientRect();
+
+                const relX = e.clientX - rect.left;
+
+                const width = rect.width;
+
+                const ratio = relX / width;
+
+
+
+                if (ratio <= 0.10) {
+
+                    // 왼쪽 10% → 이 장비로 들어오는 IN 포트들 수정
+
+                    // 가장 가까운 y 위치의 IN 포트 연결 찾기
+
+                    const relY = e.clientY - rect.top;
+
+                    const inConns = connections.filter(c => c.to === node.id);
+
+                    if (inConns.length === 0) return alert('이 장비에 연결된 입력 포트가 없습니다.');
+
+                    // y 비율로 가장 가까운 포트 선택
+
+                    const inCounts_local = inConns.length;
+
+                    const portIndex = Math.min(Math.floor(relY / (nodeEl.offsetHeight / (inCounts_local + 1))), inConns.length - 1);
+
+                    const targetConn = inConns[Math.max(0, portIndex)];
+
+                    const newPortStr = prompt(`IN 포트 번호 수정 (이후 포트는 순차 재할당됩니다):`, targetConn.toPort);
+
+                    if (newPortStr !== null) {
+
+                        const newPort = parseInt(newPortStr.trim());
+
+                        if (!isNaN(newPort) && newPort > 0) {
+
+                            changeToPort(targetConn, newPort);
+
+                            drawAllLines(); saveState();
+
+                        }
+
+                    }
+
+                } else if (ratio >= 0.90) {
+
+                    // 오른쪽 10% → 이 장비에서 나가는 OUT 포트들 수정
+
+                    const relY = e.clientY - rect.top;
+
+                    const outConns = connections.filter(c => c.from === node.id);
+
+                    if (outConns.length === 0) return alert('이 장비에서 출력되는 포트가 없습니다.');
+
+                    const portIndex = Math.min(Math.floor(relY / (nodeEl.offsetHeight / (outConns.length + 1))), outConns.length - 1);
+
+                    const targetConn = outConns[Math.max(0, portIndex)];
+
+                    const newPortStr = prompt(`OUT 포트 번호 수정 (이후 포트는 순차 재할당됩니다):`, targetConn.fromPort);
+
+                    if (newPortStr !== null) {
+
+                        const newPort = parseInt(newPortStr.trim());
+
+                        if (!isNaN(newPort) && newPort > 0) {
+
+                            changeFromPort(targetConn, newPort);
+
+                            drawAllLines(); saveState();
+
+                        }
+
+                    }
+
+                } else {
+
+                    // 중앙 80% → 장비명 수정
+
+                    editNodeName(node, nodeEl);
+
+                }
+
+            });
+
+
+
+            canvas.appendChild(nodeEl);
+
+        }
+
+
+
+        function editNodeName(node, nodeEl) {
+
+            const newName = prompt("장비 이름을 변경합니다:", node.label);
+
+            if (newName !== null) { node.label = newName.trim(); nodeEl.querySelector('.node-title').innerHTML = node.label || '&nbsp;'; drawAllLines(); saveState(); }
+
+        }
+
+
+
+        document.addEventListener('mousemove', (e) => {
+
+            // 케이블 라벨 드래그
+
+            if (isDraggingLabel && activeLabelConn) {
+
+                hasDragged = true;
+
+                const dx = (e.clientX - labelDragStartX) / zoomLevel;
+
+                const dy = (e.clientY - labelDragStartY) / zoomLevel;
+
+                activeLabelConn.labelXOff = (activeLabelConn._labelStartXOff || 0) + dx;
+
+                activeLabelConn.labelYOff = (activeLabelConn._labelStartYOff || 0) + dy;
+
+                drawAllLines();
+
+                return;
+
+            }
+
+
+
+            if (isDraggingConnection && activeDragConnection) {
+
+                hasDragged = true;
+
+                let dx = (e.clientX - connDragStartX) / zoomLevel;
+
+                let dy = (e.clientY - connDragStartY) / zoomLevel;
+
+
+
+                if (!connDragType) {
+
+                    if (Math.abs(dx) > 5) {
+
+                        connDragType = 'horizontal';
+
+                    } else if (Math.abs(dy) > 5) {
+
+                        connDragType = 'vertical';
+
+                    }
+
+                }
+
+
+
+                if (connDragType === 'horizontal' && lineStyle === 'step') {
+
+                    if (selectedConnections.includes(activeDragConnection)) {
+
+                        selectedConnections.forEach(c => {
+
+                            c.midXOffset = (c.midXOffset || 0) + dx;
+
+                        });
+
+                    } else {
+
+                        activeDragConnection.midXOffset = (activeDragConnection.midXOffset || 0) + dx;
+
+                    }
+
+                    connDragStartX = e.clientX;
+
+                    drawAllLines();
+
+                } else if (connDragType === 'vertical' || (!connDragType && Math.abs(dy) > 20)) {
+
+                    let currentDy = e.clientY - connDragStartY;
+
+                    if (Math.abs(currentDy) > 20) {
+
+                        let newIdx = currentDy < 0 ? activeConnIndex - 1 : activeConnIndex + 1;
+
+                        if (newIdx >= 0 && newIdx < connections.length) {
+
+                            let temp = connections[activeConnIndex];
+
+                            connections[activeConnIndex] = connections[newIdx];
+
+                            connections[newIdx] = temp;
+
+                            activeConnIndex = newIdx;
+
+                            connDragStartY = e.clientY;
+
+                            autoReassignPortNumbers();
+
+                            drawAllLines();
+
+                        }
+
+                    }
+
+                }
+
+            } else if (isDragging) {
+
+                hasDragged = true;
+
+                let dx = (e.clientX - dragStartMouseX) / zoomLevel; let dy = (e.clientY - dragStartMouseY) / zoomLevel;
+
+                selectedNodes.forEach(n => {
+
+                    const el = document.getElementById(`node-${n.id}`); if (!el) return;
+
+                    n.x = Math.max(10, Math.min(canvas.clientWidth - el.offsetWidth, n.startX + dx));
+
+                    n.y = Math.max(10, Math.min(canvas.clientHeight - el.offsetHeight, n.startY + dy));
+
+                    el.style.left = `${n.x}px`; el.style.top = `${n.y}px`;
+
+                });
+
+                drawAllLines();
+
+            } else if (isSelecting) {
+
+                const rect = canvas.getBoundingClientRect();
+
+                const currentX = (e.clientX - rect.left) / zoomLevel; const currentY = (e.clientY - rect.top) / zoomLevel;
+
+                const boxX = Math.min(selectStartX, currentX), boxY = Math.min(selectStartY, currentY);
+
+                const boxW = Math.abs(selectStartX - currentX), boxH = Math.abs(selectStartY - currentY);
+
+
+
+                selectionBox.style.left = `${boxX}px`; selectionBox.style.top = `${boxY}px`;
+
+                selectionBox.style.width = `${boxW}px`; selectionBox.style.height = `${boxH}px`;
+
+
+
+                // 드래그 마스킹 면적이 생기면 배경 마우스 업 시 전체 해제 차단 가동
+
+                if (boxW > 5 || boxH > 5) {
+
+                    preventCanvasClick = true;
+
+                }
+
+
+
+                nodes.forEach(node => {
+
+                    const el = document.getElementById(`node-${node.id}`); if (!el) return;
+
+                    const isInside = (boxX < node.x + el.offsetWidth && boxX + boxW > node.x && boxY < node.y + el.offsetHeight && boxY + boxH > node.y);
+
+                    const idx = selectedNodes.findIndex(n => n.id === node.id);
+
+                    if (isInside && idx === -1) { selectedNodes.push(node); el.classList.add('ring-4', 'ring-sky-400'); }
+
+                    else if (!isInside && idx > -1) { selectedNodes.splice(idx, 1); el.classList.remove('ring-4', 'ring-sky-400'); }
+
+                });
+
+
+
+                let connSelectionChanged = false;
+
+                connections.forEach(conn => {
+
+                    let isInside = false;
+
+                    // ★ [개선] 라벨 중간점이 아닌 케이블 전체 경로 바운딩박스로 검사
+                    if (conn._x1 !== undefined && conn._x2 !== undefined) {
+
+                        // 케이블 경로의 양 끝점을 포함하는 바운딩박스 vs 선택박스 교차 검사
+                        const cMinX = Math.min(conn._x1, conn._x2);
+                        const cMaxX = Math.max(conn._x1, conn._x2);
+                        const cMinY = Math.min(conn._y1, conn._y2);
+                        const cMaxY = Math.max(conn._y1, conn._y2);
+
+                        isInside = !(boxX + boxW < cMinX || boxX > cMaxX || boxY + boxH < cMinY || boxY > cMaxY);
+
+                    } else if (conn.mx1 !== undefined && conn.mx2 !== undefined) {
+
+                        isInside = (boxX < conn.mx1 && boxX + boxW > conn.mx1 && boxY < conn.my1 && boxY + boxH > conn.my1) ||
+
+                            (boxX < conn.mx2 && boxX + boxW > conn.mx2 && boxY < conn.my2 && boxY + boxH > conn.my2);
+
+                    } else if (conn.mx !== undefined && conn.my !== undefined) {
+
+                        isInside = (boxX < conn.mx && boxX + boxW > conn.mx && boxY < conn.my && boxY + boxH > conn.my);
+
+                    }
+
+                    const idx = selectedConnections.indexOf(conn);
+
+                    if (isInside && idx === -1) { selectedConnections.push(conn); connSelectionChanged = true; }
+
+                    else if (!isInside && idx > -1) { selectedConnections.splice(idx, 1); connSelectionChanged = true; }
+
+                });
+
+
+
+                // ★ [최적화] drawAllLines() 대신 직접 클래스 조작 (dblclick 깨짐 방지)
+                if (connSelectionChanged) {
+
+                    connections.forEach(c => {
+
+                        if (c._el) {
+
+                            if (selectedConnections.includes(c)) { c._el.classList.add('selected'); }
+
+                            else { c._el.classList.remove('selected'); }
+
+                        }
+
+                    });
+
+                }
+
+                updateStatusBar();
+
+            }
+
+        });
+
+
+
+        document.addEventListener('mouseup', () => {
+
+            if (isDraggingLabel) {
+
+                isDraggingLabel = false;
+
+                if (hasDragged) saveState();
+
+                activeLabelConn = null;
+
+                hasDragged = false;
+
+                return;
+
+            }
+
+            if (isDraggingConnection) {
+
+                if (hasDragged) saveState();
+
+                isDraggingConnection = false;
+
+                activeDragConnection = null;
+
+                connDragType = null;
+
+            }
+
+            if (isDragging) { if (hasDragged) saveState(); isDragging = false; }
+
+            if (isSelecting) { isSelecting = false; selectionBox.classList.add('hidden'); }
+
+        });
+
+
+
+        function onNodeClick(e, node) {
+
+            e.stopPropagation(); if (hasDragged) { hasDragged = false; return; }
+
+            const el = document.getElementById(`node-${node.id}`);
+
+
+
+            if (selectedNodeForConnect) {
+
+                if (selectedNodeForConnect.id !== node.id) {
+
+                    // 일단 포트번호 없이 추가 후 autoReassignPortNumbers로 일괄 재계산
+
+                    connections.push({
+
+                        from: selectedNodeForConnect.id,
+
+                        to: node.id,
+
+                        cable: currentCableType,
+
+                        note: ''
+
+                    });
+
+                    autoReassignPortNumbers();
+
+                    saveState();
+
+                }
+
+                document.querySelectorAll('.node-element').forEach(n => n.classList.remove('node-connect-ready'));
+
+                selectedNodeForConnect = null;
+
+                drawAllLines();
+
+                updateStatusBar();
+
+                return;
+
+            }
+
+
+
+            // 기존 클릭 선택 로직
+
+            if (wasNodeSelectedBeforeMousedown) {
+
+                selectedNodes = selectedNodes.filter(n => n.id !== node.id);
+
+                el.classList.remove('ring-4', 'ring-sky-400');
+
+            }
+
+            updateStatusBar();
+
+        }
+
+
+
+        function alignNodes(direction) {
+
+            if (selectedNodes.length < 2) return alert("정렬할 장비를 화면에서 2개 이상 선택해 주세요!");
+
+            const baseNode = selectedNodes[0];
+
+            selectedNodes.forEach(node => {
+
+                const el = document.getElementById(`node-${node.id}`);
+
+                if (direction === 'horizontal') { node.x = baseNode.x; el.style.left = `${node.x}px`; }
+
+                else { node.y = baseNode.y; el.style.top = `${node.y}px`; }
+
+            });
+
+            drawAllLines(); saveState();
+
+        }
+
+
+
+        function distributeNodes(direction) {
+
+            if (selectedNodes.length < 3) return alert("균등 분할을 하려면 장비를 최소 3개 이상 선택해야 합니다!");
+
+            if (direction === 'horizontal') {
+
+                selectedNodes.sort((a, b) => a.x - b.x);
+
+                const minX = selectedNodes[0].x, maxX = selectedNodes[selectedNodes.length - 1].x;
+
+                const step = (maxX - minX) / (selectedNodes.length - 1);
+
+                selectedNodes.forEach((node, idx) => { node.x = minX + (step * idx); document.getElementById(`node-${node.id}`).style.left = `${node.x}px`; });
+
+            } else {
+
+                selectedNodes.sort((a, b) => a.y - b.y);
+
+                const minY = selectedNodes[0].y, maxY = selectedNodes[selectedNodes.length - 1].y;
+
+                const step = (maxY - minY) / (selectedNodes.length - 1);
+
+                selectedNodes.forEach((node, idx) => { node.y = minY + (step * idx); document.getElementById(`node-${node.id}`).style.top = `${node.y}px`; });
+
+            }
+
+            drawAllLines(); saveState();
+
+        }
+
+
+
+        function autoLayout() {
+
+            if (nodes.length === 0) return;
+
+            const col0 = [], col1 = [], col2 = [];
+
+            nodes.forEach(node => {
+
+                if (node.type === 'video-in' || node.type === 'audio-in') col0.push(node);
+
+                else if (node.type === 'video-dev' || node.type === 'audio-dev') col1.push(node);
+
+                else col2.push(node);
+
+            });
+
+            const deployColumn = (columnNodes, xCoordinate) => {
+
+                columnNodes.forEach((node, idx) => {
+
+                    node.x = xCoordinate; node.y = 50 + (idx * 115);
+
+                    const el = document.getElementById(`node-${node.id}`); if (el) { el.style.left = `${node.x}px`; el.style.top = `${node.y}px`; }
+
+                });
+
+            };
+
+            deployColumn(col0, 60); deployColumn(col1, 400); deployColumn(col2, 740);
+
+            clearNodeSelection(); drawAllLines(); saveState(); updateStatusBar();
+
+        }
+
+
+
+        // ★ 케이블 정렬 통합 함수
+        //    step 2개: 첫 번째 midX 기준으로 두 번째 수직 정렬
+        //    step 3개+: Y중점 순서 정렬 → X방향 균등 분산(겹침 방지)
+        //    curve: connections 배열 재배치 → 포트 Y 균등 분포
+        function alignCablesMidX() {
+
+            if (selectedConnections.length < 2) return alert('케이블 정렬은 2개 이상 선택해주세요!');
+
+            if (lineStyle === 'step') {
+
+                const withCoords = selectedConnections.filter(c => c._x1 !== undefined && c._x2 !== undefined);
+                if (withCoords.length < 2) return;
+
+                if (withCoords.length === 2) {
+
+                    // ★ 2개: 첫 번째 케이블의 현재 midX를 기준으로 두 번째를 수직 정렬
+                    const base = withCoords[0];
+                    const baseMidX = (base._x1 + base._x2) / 2 + (base.midXOffset || 0);
+                    const other = withCoords[1];
+                    other.midXOffset = baseMidX - (other._x1 + other._x2) / 2;
+
+                } else {
+
+                    // ★ 3개 이상: Y중점 기준 정렬 후 X 방향으로 균등 분산 → 겹침 방지
+                    //   케이블 간 간격: 30px (수직 세그먼트가 서로 다른 X에 위치)
+                    const SPACING = 30;
+
+                    // Y중점 기준으로 정렬 (위→아래 순서)
+                    const sorted = [...withCoords].sort((a, b) => {
+                        const ya = (a._y1 + a._y2) / 2;
+                        const yb = (b._y1 + b._y2) / 2;
+                        return ya - yb;
+                    });
+
+                    // 그룹 전체의 기준 중앙 X = 선택 케이블 자연 midX들의 평균
+                    const avgNaturalMid = sorted.reduce((s, c) => s + (c._x1 + c._x2) / 2, 0) / sorted.length;
+
+                    // 전체 폭 = (n-1) * spacing, 좌측 시작 X
+                    const totalW = SPACING * (sorted.length - 1);
+                    const startX = avgNaturalMid - totalW / 2;
+
+                    // 각 케이블에 고유한 midX 할당 → 수직 세그먼트가 겹치지 않음
+                    sorted.forEach((conn, i) => {
+                        const naturalMid = (conn._x1 + conn._x2) / 2;
+                        conn.midXOffset = (startX + SPACING * i) - naturalMid;
+                    });
+                }
+
+            } else {
+
+                // ★ Curve 스타일: connections 배열 재배치 → 포트 인덱스 기반 Y 균등 분포
+                const sorted = [...selectedConnections].sort((a, b) => (a.my || a._y1 || 0) - (b.my || b._y1 || 0));
+                const indices = sorted.map(c => connections.indexOf(c)).sort((a, b) => a - b);
+                indices.forEach((connIdx, i) => { connections[connIdx] = sorted[i]; });
+                autoReassignPortNumbers();
+            }
+
+            drawAllLines(); saveState();
+        }
+
+
+
+        function fitToScreen() {
+
+            if (nodes.length === 0) {
+
+                setZoom(1.0);
+
+                return;
+
+            }
+
+
+
+            let minX = Infinity, maxX = -Infinity;
+
+            let minY = Infinity, maxY = -Infinity;
+
+
+
+            nodes.forEach(node => {
+
+                const el = document.getElementById(`node-${node.id}`);
+
+                const w = el ? el.offsetWidth : 192;
+
+                const h = el ? el.offsetHeight : 80;
+
+
+
+                if (node.x < minX) minX = node.x;
+
+                if (node.x + w > maxX) maxX = node.x + w;
+
+                if (node.y < minY) minY = node.y;
+
+                if (node.y + h > maxY) maxY = node.y + h;
+
+            });
+
+
+
+            const padding = 60;
+
+            minX -= padding;
+
+            maxX += padding;
+
+            minY -= padding;
+
+            maxY += padding;
+
+
+
+            const contentWidth = maxX - minX;
+
+            const contentHeight = maxY - minY;
+
+
+
+            const container = document.getElementById('workspace-container');
+
+            if (!container) return;
+
+
+
+            const containerWidth = container.clientWidth;
+
+            const containerHeight = container.clientHeight;
+
+
+
+            let targetZoom = Math.min(containerWidth / contentWidth, containerHeight / contentHeight);
+
+            targetZoom = Math.max(0.3, Math.min(1.5, targetZoom));
+
+
+
+            setZoom(targetZoom);
+
+
+
+            const scrollX = (minX * targetZoom) - (containerWidth - contentWidth * targetZoom) / 2;
+
+            const scrollY = (minY * targetZoom) - (containerHeight - contentHeight * targetZoom) / 2;
+
+
+
+            container.scrollLeft = Math.max(0, scrollX);
+
+            container.scrollTop = Math.max(0, scrollY);
+
+        }
+
+
+
+        function changeFromPort(conn, newPort) {
+
+            conn.fromPort = newPort;
+
+            const connIdx = connections.indexOf(conn);
+
+            let nextPortValue = newPort + 1;
+
+            for (let i = connIdx + 1; i < connections.length; i++) {
+
+                const c = connections[i];
+
+                if (c.from === conn.from) {
+
+                    c.fromPort = nextPortValue;
+
+                    nextPortValue++;
+
+                }
+
+            }
+
+        }
+
+
+
+        function changeToPort(conn, newPort) {
+
+            conn.toPort = newPort;
+
+            const connIdx = connections.indexOf(conn);
+
+            let nextPortValue = newPort + 1;
+
+            for (let i = connIdx + 1; i < connections.length; i++) {
+
+                const c = connections[i];
+
+                if (c.to === conn.to) {
+
+                    c.toPort = nextPortValue;
+
+                    nextPortValue++;
+
+                }
+
+            }
+
+        }
+
+
+
+        // ★ 드래그 재배열 / 신규 연결 시에만 호출 — 수동 수정 포트 번호 덮어쓰지 않음
+
+        function autoReassignPortNumbers() {
+
+            nodes.forEach(node => {
+
+                let outCount = 1;
+
+                for (let i = 0; i < connections.length; i++) {
+
+                    if (connections[i].from === node.id) {
+
+                        connections[i].fromPort = outCount++;
+
+                    }
+
+                }
+
+                let inCount = 1;
+
+                for (let i = 0; i < connections.length; i++) {
+
+                    if (connections[i].to === node.id) {
+
+                        connections[i].toPort = inCount++;
+
+                    }
+
+                }
+
+            });
+
+        }
+
+
+
+        // ★ 렌더링 시 포트 번호가 없는 연결에만 초기값 부여 (수동 수정값 보존)
+
+        function initMissingPortNumbers() {
+
+            const tempOut = {}, tempIn = {};
+
+            connections.forEach(conn => {
+
+                tempOut[conn.from] = (tempOut[conn.from] || 0) + 1;
+
+                if (conn.fromPort === undefined || conn.fromPort === null) {
+
+                    conn.fromPort = tempOut[conn.from];
+
+                }
+
+                tempIn[conn.to] = (tempIn[conn.to] || 0) + 1;
+
+                if (conn.toPort === undefined || conn.toPort === null) {
+
+                    conn.toPort = tempIn[conn.to];
+
+                }
+
+            });
+
+        }
+
+
+
+        function getNodeDisplayName(node) {
+
+            if (node.label && node.label.trim() !== '') return node.label;
+
+            switch (node.type) {
+
+                case 'video-in': return `비디오 입력 ${node.id}`;
+
+                case 'video-dev': return `비디오 장비 ${node.id}`;
+
+                case 'audio-in': return `오디오 입력 ${node.id}`;
+
+                case 'audio-dev': return `오디오 장비 ${node.id}`;
+
+                case 'net-dev': return `이더넷 장비 ${node.id}`;
+
+                case 'out-dev': return `출력 장비 ${node.id}`;
+
+                default: return `기타 장비 ${node.id}`;
+
+            }
+
+        }
+
+
+
+        function drawAllLines() {
+
+            svg.innerHTML = ''; let inCounts = {}, outCounts = {};
+
+            connections.forEach(c => { outCounts[c.from] = (outCounts[c.from] || 0) + 1; inCounts[c.to] = (inCounts[c.to] || 0) + 1; });
+
+
+
+            nodes.forEach(node => {
+
+                const el = document.getElementById(`node-${node.id}`);
+
+                if (el) {
+
+                    const maxPorts = Math.max(inCounts[node.id] || 0, outCounts[node.id] || 0);
+
+                    el.style.height = `${Math.max(76, (maxPorts + 1) * 28)}px`;
+
+                }
+
+            });
+
+
+
+            let inIndices = {}, outIndices = {};
+
+            // 포트번호 없는 연결에만 초기값 부여 (수동 수정값 유지)
+
+            initMissingPortNumbers();
+
+
+
+            connections.forEach((conn, index) => {
+
+                const fromNode = nodes.find(n => n.id === conn.from); const toNode = nodes.find(n => n.id === conn.to);
+
+                if (fromNode && toNode) {
+
+                    const fromEl = document.getElementById(`node-${fromNode.id}`); const toEl = document.getElementById(`node-${toNode.id}`);
+
+                    if (!fromEl || !toEl) return;
+
+
+
+                    outIndices[conn.from] = (outIndices[conn.from] || 0) + 1; inIndices[conn.to] = (inIndices[conn.to] || 0) + 1;
+
+
+
+                    // conn.fromPort / conn.toPort 는 autoReassignPortNumbers()가 이미 설정함 — 덮어쓰지 않음
+
+
+
+                    const x1 = fromNode.x + fromEl.offsetWidth;
+
+                    const y1 = fromNode.y + (fromEl.offsetHeight * outIndices[conn.from] / (outCounts[conn.from] + 1));
+
+                    const x2 = toNode.x;
+
+                    const y2 = toNode.y + (toEl.offsetHeight * inIndices[conn.to] / (inCounts[conn.to] + 1));
+
+
+
+                    const spec = cableSpecs[conn.cable] || { color: '#94a3b8' };
+
+                    const isBackward = x2 < x1;
+
+                    const boxH = 20;
+
+                    // ★ conn에 좌표 저장 (드래그 선택 + 직접 요소 참조용)
+                    conn._x1 = x1; conn._y1 = y1; conn._x2 = x2; conn._y2 = y2;
+
+                    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+                    conn._el = g; // ★ 직접 요소 참조 저장
+
+                    g.setAttribute('class', 'edge-group' + (selectedConnections.includes(conn) ? ' selected' : ''));
+
+                    g.setAttribute('style', 'cursor:pointer; pointer-events: auto;');
+
+
+
+                    if (isBackward) {
+
+                        const stubLength = 40;
+
+                        const outEndX = x1 + stubLength;
+
+                        const inStartX = x2 - stubLength;
+
+
+
+                        // 스터브 텍스트 정의
+                        // 출력 스터브: 목적지 장비의 IN 포트 번호 기재 (→ 어느 입력으로 들어가는지)
+                        // 입력 스터브: 출발지 장비의 OUT 포트 번호 기재 (← 어느 출력에서 오는지)
+
+                        const toInPortStr = conn.toPort ? ` IN${conn.toPort}` : '';
+                        const fromOutPortStr = conn.fromPort ? ` OUT${conn.fromPort}` : '';
+
+                        const labelTextOut = `[TO: ${getNodeDisplayName(toNode)}${toInPortStr}] ${conn.cable}${conn.note ? ' [' + conn.note + ']' : ''}`;
+
+                        const labelTextIn = `[FROM: ${getNodeDisplayName(fromNode)}${fromOutPortStr}] ${conn.cable}${conn.note ? ' [' + conn.note + ']' : ''}`;
+
+
+
+                        // 개별 텍스트 가로폭 계산
+
+                        let calculatedWidthOut = 0;
+
+                        for (let i = 0; i < labelTextOut.length; i++) {
+
+                            calculatedWidthOut += labelTextOut.charCodeAt(i) > 127 ? 11 : 6.5;
+
+                        }
+
+                        const boxWOut = calculatedWidthOut + 14;
+
+
+
+                        let calculatedWidthIn = 0;
+
+                        for (let i = 0; i < labelTextIn.length; i++) {
+
+                            calculatedWidthIn += labelTextIn.charCodeAt(i) > 127 ? 11 : 6.5;
+
+                        }
+
+                        const boxWIn = calculatedWidthIn + 14;
+
+
+
+                        // 출력 스터브 패스 (---O)
+
+                        const pathOut = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+
+                        pathOut.setAttribute('class', 'main-path');
+
+                        const dOut = `M ${x1} ${y1} L ${outEndX} ${y1}`;
+
+                        pathOut.setAttribute('d', dOut); pathOut.setAttribute('stroke', spec.color); pathOut.setAttribute('fill', 'none');
+
+                        pathOut.setAttribute('stroke-width', '3');
+
+                        g.appendChild(pathOut);
+
+
+
+                        // 입력 스터브 패스 (O---)
+
+                        const pathIn = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+
+                        pathIn.setAttribute('class', 'main-path');
+
+                        const dIn = `M ${inStartX} ${y2} L ${x2} ${y2}`;
+
+                        pathIn.setAttribute('d', dIn); pathIn.setAttribute('stroke', spec.color); pathIn.setAttribute('fill', 'none');
+
+                        pathIn.setAttribute('stroke-width', '3');
+
+                        g.appendChild(pathIn);
+
+
+
+                        // 터치용 투명 패스
+
+                        const touchOut = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+
+                        touchOut.setAttribute('d', dOut); touchOut.setAttribute('stroke', 'transparent'); touchOut.setAttribute('stroke-width', '15'); touchOut.setAttribute('fill', 'none');
+
+                        g.appendChild(touchOut);
+
+
+
+                        const touchIn = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+
+                        touchIn.setAttribute('d', dIn); touchIn.setAttribute('stroke', 'transparent'); touchIn.setAttribute('stroke-width', '15'); touchIn.setAttribute('fill', 'none');
+
+                        g.appendChild(touchIn);
+
+
+
+                        // 동그라미 (출력 스터브 끝)
+
+                        const circleOut = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+
+                        circleOut.setAttribute('cx', outEndX); circleOut.setAttribute('cy', y1); circleOut.setAttribute('r', '4');
+
+                        circleOut.setAttribute('fill', isLightMode ? '#ffffff' : '#000000');
+
+                        circleOut.setAttribute('stroke', spec.color); circleOut.setAttribute('stroke-width', '2');
+
+                        g.appendChild(circleOut);
+
+
+
+                        // 동그라미 (입력 스터브 시작)
+
+                        const circleIn = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+
+                        circleIn.setAttribute('cx', inStartX); circleIn.setAttribute('cy', y2); circleIn.setAttribute('r', '4');
+
+                        circleIn.setAttribute('fill', isLightMode ? '#ffffff' : '#000000');
+
+                        circleIn.setAttribute('stroke', spec.color); circleIn.setAttribute('stroke-width', '2');
+
+                        g.appendChild(circleIn);
+
+
+
+                        // 출력 스터브 라벨
+
+                        const textGOut = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+                        const rectOutX = outEndX + 6;
+
+                        const rectOutY = y1 - boxH / 2;
+
+
+
+                        const rOut = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+
+                        rOut.setAttribute('x', rectOutX); rOut.setAttribute('y', rectOutY);
+
+                        rOut.setAttribute('width', boxWOut); rOut.setAttribute('height', boxH);
+
+                        rOut.setAttribute('rx', '4');
+
+                        rOut.setAttribute('fill', isLightMode ? '#ffffff' : '#111111');
+
+                        rOut.setAttribute('stroke', spec.color); rOut.setAttribute('stroke-width', '1');
+
+                        textGOut.appendChild(rOut);
+
+
+
+                        const tOut = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+
+                        tOut.setAttribute('x', rectOutX + boxWOut / 2); tOut.setAttribute('y', y1 + 4); tOut.setAttribute('text-anchor', 'middle');
+
+                        tOut.setAttribute('fill', isLightMode ? '#000000' : '#ffffff');
+
+                        tOut.setAttribute('class', 'edge-label');
+
+                        tOut.textContent = labelTextOut;
+
+                        textGOut.appendChild(tOut);
+
+                        g.appendChild(textGOut);
+
+
+
+                        // 입력 스터브 라벨
+
+                        const textGIn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+                        const rectInX = inStartX - boxWIn - 6;
+
+                        const rectInY = y2 - boxH / 2;
+
+
+
+                        const rIn = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+
+                        rIn.setAttribute('x', rectInX); rIn.setAttribute('y', rectInY);
+
+                        rIn.setAttribute('width', boxWIn); rIn.setAttribute('height', boxH);
+
+                        rIn.setAttribute('rx', '4');
+
+                        rIn.setAttribute('fill', isLightMode ? '#ffffff' : '#111111');
+
+                        rIn.setAttribute('stroke', spec.color); rIn.setAttribute('stroke-width', '1');
+
+                        textGIn.appendChild(rIn);
+
+
+
+                        const tIn = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+
+                        tIn.setAttribute('x', rectInX + boxWIn / 2); tIn.setAttribute('y', y2 + 4); tIn.setAttribute('text-anchor', 'middle');
+
+                        tIn.setAttribute('fill', isLightMode ? '#000000' : '#ffffff');
+
+                        tIn.setAttribute('class', 'edge-label');
+
+                        tIn.textContent = labelTextIn;
+
+                        textGIn.appendChild(tIn);
+
+                        g.appendChild(textGIn);
+
+
+
+                        conn.mx1 = rectOutX + boxWOut / 2;
+
+                        conn.my1 = y1;
+
+                        conn.mx2 = rectInX + boxWIn / 2;
+
+                        conn.my2 = y2;
+
+                        conn.mx = conn.mx1;
+
+                        conn.my = conn.my1;
+
+                    } else {
+
+                        const labelText = conn.note ? `${conn.cable} [${conn.note}]` : conn.cable;
+
+                        let calculatedWidth = 0;
+
+                        for (let i = 0; i < labelText.length; i++) {
+
+                            calculatedWidth += labelText.charCodeAt(i) > 127 ? 11 : 6.5;
+
+                        }
+
+                        const boxW = calculatedWidth + 14;
+
+
+
+                        let d, mx, my;
+
+                        const controlOffset = Math.abs(x2 - x1) * 0.4;
+
+                        if (lineStyle === 'curve') {
+
+                            d = `M ${x1} ${y1} C ${x1 + controlOffset} ${y1}, ${x2 - controlOffset} ${y2}, ${x2} ${y2}`;
+
+                            const mt = 0.5;
+
+                            mx = Math.pow(1 - mt, 3) * x1 + 3 * Math.pow(1 - mt, 2) * mt * (x1 + controlOffset) + 3 * (1 - mt) * Math.pow(mt, 2) * (x2 - controlOffset) + Math.pow(mt, 3) * x2;
+
+                            my = Math.pow(1 - mt, 3) * y1 + 3 * Math.pow(1 - mt, 2) * mt * y1 + 3 * (1 - mt) * Math.pow(mt, 2) * y2 + Math.pow(mt, 3) * y2;
+
+                        } else {
+
+                            let midX = x1 + (x2 - x1) / 2 + (conn.midXOffset || 0);
+
+                            midX = Math.max(10, Math.min(canvas.clientWidth - 10, midX));
+
+                            d = `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`;
+
+                            mx = midX;
+
+                            my = y1 + (y2 - y1) / 2;
+
+                        }
+
+                        conn.mx = mx; conn.my = my;
+
+                        delete conn.mx1; delete conn.my1; delete conn.mx2; delete conn.my2;
+
+
+
+                        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+
+                        path.setAttribute('class', 'main-path');
+
+                        path.setAttribute('d', d); path.setAttribute('stroke', spec.color); path.setAttribute('fill', 'none');
+
+                        path.setAttribute('stroke-width', '3');
+
+                        g.appendChild(path);
+
+
+
+                        const touchPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+
+                        touchPath.setAttribute('d', d); touchPath.setAttribute('stroke', 'transparent'); touchPath.setAttribute('stroke-width', '15'); touchPath.setAttribute('fill', 'none');
+
+                        g.appendChild(touchPath);
+
+
+
+                        const textG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+                        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+
+                        rect.setAttribute('x', mx - boxW / 2); rect.setAttribute('y', my - boxH / 2);
+
+                        rect.setAttribute('width', boxW); rect.setAttribute('height', boxH);
+
+                        rect.setAttribute('rx', '4');
+
+                        rect.setAttribute('fill', isLightMode ? '#ffffff' : '#111111');
+
+                        rect.setAttribute('stroke', spec.color); rect.setAttribute('stroke-width', '1');
+
+                        textG.appendChild(rect);
+
+
+
+                        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+
+                        text.setAttribute('x', mx); text.setAttribute('y', my + 4); text.setAttribute('text-anchor', 'middle');
+
+                        text.setAttribute('fill', isLightMode ? '#000000' : '#ffffff');
+
+                        text.setAttribute('class', 'edge-label');
+
+                        text.textContent = labelText;
+
+                        textG.appendChild(text);
+
+                        g.appendChild(textG);
+
+                    }
+
+
+
+                    // ★ OUT 포트 dot (connection g그룹 안에 등록)
+
+                    const outDotG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+                    outDotG.setAttribute('class', 'port-dot-group');
+
+                    outDotG.setAttribute('style', 'cursor: pointer; pointer-events: auto;');
+
+
+
+                    const outCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+
+                    outCircle.setAttribute('class', 'port-dot-circle');
+
+                    outCircle.setAttribute('cx', x1);
+
+                    outCircle.setAttribute('cy', y1);
+
+                    outCircle.setAttribute('r', '5');
+
+                    outCircle.setAttribute('fill', '#a855f7');
+
+                    outCircle.setAttribute('stroke', '#e9d5ff');
+
+                    outCircle.setAttribute('stroke-width', '1.5');
+
+                    outCircle.style.transition = 'r 0.15s ease';
+
+                    outDotG.appendChild(outCircle);
+
+
+
+                    const outLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+
+                    outLabel.setAttribute('x', x1 - 12);
+
+                    outLabel.setAttribute('y', y1 + 4);
+
+                    outLabel.setAttribute('text-anchor', 'end');
+
+                    outLabel.setAttribute('fill', isLightMode ? '#6b21a8' : '#e9d5ff');
+
+                    outLabel.setAttribute('style', 'font-size: 9px; font-weight: bold; pointer-events: none;');
+
+                    outLabel.textContent = `OUT ${conn.fromPort}`;
+
+                    outDotG.appendChild(outLabel);
+
+
+
+                    outDotG.addEventListener('mousedown', (e) => e.stopPropagation());
+
+                    outDotG.addEventListener('dblclick', (e) => {
+
+                        e.stopPropagation();
+
+                        const newPortStr = prompt(`OUT 포트 번호 수정 (이후 포트들은 순차 재할당):`, conn.fromPort);
+
+                        if (newPortStr !== null) {
+
+                            const newPort = parseInt(newPortStr.trim());
+
+                            if (!isNaN(newPort) && newPort > 0) { changeFromPort(conn, newPort); drawAllLines(); saveState(); }
+
+                        }
+
+                    });
+
+                    g.appendChild(outDotG);
+
+
+
+                    // ★ IN 포트 dot
+
+                    const inDotG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+                    inDotG.setAttribute('class', 'port-dot-group');
+
+                    inDotG.setAttribute('style', 'cursor: pointer; pointer-events: auto;');
+
+
+
+                    const inCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+
+                    inCircle.setAttribute('class', 'port-dot-circle');
+
+                    inCircle.setAttribute('cx', x2);
+
+                    inCircle.setAttribute('cy', y2);
+
+                    inCircle.setAttribute('r', '5');
+
+                    inCircle.setAttribute('fill', '#38bdf8');
+
+                    inCircle.setAttribute('stroke', '#bae6fd');
+
+                    inCircle.setAttribute('stroke-width', '1.5');
+
+                    inCircle.style.transition = 'r 0.15s ease';
+
+                    inDotG.appendChild(inCircle);
+
+
+
+                    const inLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+
+                    inLabel.setAttribute('x', x2 + 12);
+
+                    inLabel.setAttribute('y', y2 + 4);
+
+                    inLabel.setAttribute('text-anchor', 'start');
+
+                    inLabel.setAttribute('fill', isLightMode ? '#0369a1' : '#bae6fd');
+
+                    inLabel.setAttribute('style', 'font-size: 9px; font-weight: bold; pointer-events: none;');
+
+                    inLabel.textContent = `IN ${conn.toPort}`;
+
+                    inDotG.appendChild(inLabel);
+
+
+
+                    inDotG.addEventListener('mousedown', (e) => e.stopPropagation());
+
+                    inDotG.addEventListener('dblclick', (e) => {
+
+                        e.stopPropagation();
+
+                        const newPortStr = prompt(`IN 포트 번호 수정 (이후 포트들은 순차 재할당):`, conn.toPort);
+
+                        if (newPortStr !== null) {
+
+                            const newPort = parseInt(newPortStr.trim());
+
+                            if (!isNaN(newPort) && newPort > 0) { changeToPort(conn, newPort); drawAllLines(); saveState(); }
+
+                        }
+
+                    });
+
+                    g.appendChild(inDotG);
+
+
+
+                    g.addEventListener('mousedown', (e) => {
+
+                        e.stopPropagation();
+
+                        if (e.shiftKey) {
+
+                            // ★ Shift+클릭: 케이블 다중 선택 토글 (드래그 없이)
+
+                            const idx = selectedConnections.indexOf(conn);
+
+                            if (idx === -1) {
+
+                                selectedConnections.push(conn);
+
+                            } else {
+
+                                selectedConnections.splice(idx, 1);
+
+                            }
+
+                        } else {
+
+                            // 일반 클릭: 해당 케이블만 선택 후 드래그 활성화
+
+                            isDraggingConnection = true;
+
+                            activeDragConnection = conn;
+
+                            activeConnIndex = index;
+
+                            connDragStartX = e.clientX;
+
+                            connDragStartY = e.clientY;
+
+                            if (!selectedConnections.includes(conn)) {
+
+                                selectedConnections = [conn];
+
+                                clearNodeSelection();
+
+                            }
+
+                        }
+
+                        // ★ [핵심] drawAllLines() 대신 직접 클래스 조작 → dblclick 이벤트 보존
+
+                        connections.forEach(c => {
+
+                            if (c._el) {
+
+                                if (selectedConnections.includes(c)) { c._el.classList.add('selected'); }
+
+                                else { c._el.classList.remove('selected'); }
+
+                            }
+
+                        });
+
+                        updateStatusBar();
+
+                    });
+
+
+
+                    g.addEventListener('dblclick', (e) => {
+
+                        e.stopPropagation();
+
+                        // ★ 더블클릭 시 케이블 라벨(주기) 수정
+
+                        const newNote = prompt(`[${conn.cable}] 케이블 라벨을 수정합니다:`, conn.note || '');
+
+                        if (newNote !== null) { conn.note = newNote.trim(); drawAllLines(); saveState(); }
+
+                    });
+
+
+
+                    svg.appendChild(g);
+
+                }
+
+            });
+
+        }
+
+
+
+        function exportToHTML() {
+
+            const dataScript = document.getElementById('data-script');
+
+            dataScript.textContent = `\n        let nodes = ${JSON.stringify(nodes, null, 4)};\n        let connections = ${JSON.stringify(connections, null, 4)};\n        let idCounter = ${idCounter};\n    `;
+
+            const htmlContent = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+
+            const blob = new Blob([htmlContent], { type: 'text/html' });
+
+            const link = document.createElement('a');
+
+            link.download = 'broadcast_diagram_editable.html'; link.href = URL.createObjectURL(blob); link.click();
+
+        }
+
+
+
+        function importFromHTML(event) {
+
+            const file = event.target.files[0];
+
+            if (!file) return;
+
+
+
+            const reader = new FileReader();
+
+            reader.onload = function (e) {
+
+                const content = e.target.result;
+
+                const parser = new DOMParser();
+
+                const doc = parser.parseFromString(content, 'text/html');
+
+                const scriptTag = doc.getElementById('data-script');
+
+                if (scriptTag) {
+
+                    try {
+
+                        const text = scriptTag.textContent;
+
+                        const nodesMatch = text.match(/let nodes = (\[[\s\S]*?\]);/);
+
+                        const connectionsMatch = text.match(/let connections = (\[[\s\S]*?\]);/);
+
+                        const idCounterMatch = text.match(/let idCounter = (\d+);/);
+
+
+
+                        if (nodesMatch && connectionsMatch && idCounterMatch) {
+
+                            nodes = JSON.parse(nodesMatch[1]);
+
+                            connections = JSON.parse(connectionsMatch[1]);
+
+                            idCounter = parseInt(idCounterMatch[1]);
+
+
+
+                            document.querySelectorAll('.node-element').forEach(el => el.remove());
+
+                            svg.innerHTML = '';
+
+                            clearNodeSelection();
+
+                            selectedConnections = [];
+
+
+
+                            nodes.forEach(node => renderNodeDOM(node));
+
+                            drawAllLines();
+
+                            saveState();
+
+                            updateStatusBar();
+
+                        } else {
+
+                            alert("유효한 저장 파일 포맷이 아닙니다.");
+
+                        }
+
+                    } catch (err) {
+
+                        alert("파일을 파싱하는 중 오류가 발생했습니다.");
+
+                        console.error(err);
+
+                    }
+
+                } else {
+
+                    alert("데이터를 찾을 수 없습니다.");
+
+                }
+
+            };
+
+            reader.readAsText(file);
+
+            event.target.value = '';
+
+        }
+
+
+
+        function exportToPNG() {
+
+            clearNodeSelection(); selectedConnections = []; drawAllLines(); updateStatusBar();
+
+            const exportBgColor = isLightMode ? '#f8fafc' : '#000000';
+
+            html2canvas(document.getElementById('canvas'), { backgroundColor: exportBgColor, useCORS: true, scale: 2, logging: false }).then(downloadCanvas => {
+
+                const link = document.createElement('a'); link.download = 'broadcast_system_diagram.png'; link.href = downloadCanvas.toDataURL('image/png'); link.click();
+
+            });
+
+        }
+
+
+
+        function clearCanvas() {
+
+            nodes = []; connections = []; selectedConnections = []; clearNodeSelection();
+
+            document.querySelectorAll('.node-element').forEach(el => el.remove());
+
+            drawAllLines(); setMode('move'); saveState();
+
+        }
+
+    </script>
+
+</body>
+
+
+
+</html>
